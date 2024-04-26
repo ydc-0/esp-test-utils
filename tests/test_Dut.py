@@ -11,7 +11,9 @@ from typing import Any
 import pytest
 import serial
 
+from esp_test_utils import dut_wrapper
 from esp_test_utils.adapter.dut import BaseDut
+from esp_test_utils.adapter.dut import ExpectTimeout
 from esp_test_utils.devices.serial_dut import SerialDut
 
 
@@ -106,7 +108,15 @@ class TestSerialDut(unittest.TestCase):
         if check_thread:
             assert not check_thread.is_alive()
 
+    def test_dut_wrapper_raise_timeout(self) -> None:
+        ser_dut = SerialDut('MyDut', self.serial_port, 115200, timeout=0.001)
+        with dut_wrapper(ser_dut) as dut:
+            # Test expect string failure
+            with pytest.raises(ExpectTimeout):
+                dut.expect('bbb', timeout=1)
+
     def test_serial_dut_expect(self) -> None:
+        t0 = time.perf_counter()
         dut = SerialDut('MyDut', self.serial_port, 115200, timeout=0.001)
         fd_master = os.fdopen(self.master, 'wb')
         try:
@@ -134,9 +144,33 @@ class TestSerialDut(unittest.TestCase):
             match = dut.expect(re.compile(rb'START,(\w+),END'), timeout=1)
             assert match
             assert match.group(1) == b'regex_value2'
+            # Test expect read all output dat
+            # Test regex flags
+            fd_master.write(b'data1 data1 data1 \r\n')
+            fd_master.flush()
+            time.sleep(0.1)
+            fd_master.write(b'data2 data2 data2')
+            fd_master.flush()
+            time.sleep(0.1)
+            match = dut.expect(re.compile(r'.+', re.DOTALL), timeout=0)
+            assert match
+            assert match.group(0) == 'data1 data1 data1 \r\ndata2 data2 data2'
+            # Test expect more than one match
+            # Hop to got match twice
+            fd_master.write(b'match1, match2\n')
+            fd_master.flush()
+            time.sleep(0.1)
+            match = dut.expect(re.compile(r'(match1|match2)', re.DOTALL), timeout=0)
+            assert match
+            assert match.group(0) == 'match1'
+            match = dut.expect(re.compile(r'(match1|match2)', re.DOTALL), timeout=0)
+            assert match
+            assert match.group(0) == 'match2'
         finally:
             dut.close()
             self._close_file_io(fd_master)
+        # Check Total time, All expect should block no more than one seconds other than the failure one
+        assert time.perf_counter() - t0 < 2
 
     def test_serial_dut_log(self) -> None:
         ser_read_timeout = 0.005
@@ -158,12 +192,12 @@ class TestSerialDut(unittest.TestCase):
             # test one line without \n
             fd_master.write(b'line without endl')
             fd_master.flush()
-            time.sleep(ser_read_timeout * 1.5)
+            time.sleep(ser_read_timeout * 2)
             with open(log_file, 'rb') as fr:
                 data = fr.read()
                 assert b'line without endl' not in data
             # default timeout of writting non-endl line is serial.timeout * 3
-            time.sleep(ser_read_timeout * 2)
+            time.sleep(ser_read_timeout * 5)
             with open(log_file, 'rb') as fr:
                 data = fr.read()
                 assert b'line without endl' in data
@@ -204,4 +238,4 @@ class TestSerialDut(unittest.TestCase):
 
 if __name__ == '__main__':
     # Breakpoints do not work with coverage, disable coverage for debugging
-    pytest.main(['.', '--no-cov', '--log-cli-level=DEBUG'])
+    pytest.main([__file__, '--no-cov', '--log-cli-level=DEBUG'])

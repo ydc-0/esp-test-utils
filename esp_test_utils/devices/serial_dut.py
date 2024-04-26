@@ -72,9 +72,10 @@ class SerialSpawn(pexpect.spawnbase.SpawnBase):
                 _index = self._line_cache.rfind(b'\n') + 1
                 data_to_write = self._line_cache[:_index]
                 self._line_cache = self._line_cache[_index:]
-        if not data_to_write and self._line_cache and time.time() - self._last_write_time > self.serial.timeout * 3:
+        if not data_to_write and self._line_cache and time.time() - self._last_write_time > self.serial.timeout * 5:
             # No new data for a long time, flush line cache
-            # Default timeout is serial.timeout * 3, depends on read timeout of serial instance
+            # Default timeout is serial.timeout * 5, depends on read timeout of serial instance
+            # Minimum serial timeout is 1ms, 5 ms should be enough for most lines.
             data_to_write = self._line_cache
             self._line_cache = b''
 
@@ -113,14 +114,14 @@ class SerialSpawn(pexpect.spawnbase.SpawnBase):
     def write(self, data: bytes) -> None:
         self.serial.write(data)
 
-    def read_nonblocking(self, size: int = 1, timeout: Optional[int] = None) -> bytes:
+    def read_nonblocking(self, size: int = 1, timeout: Optional[Union[int, float]] = None) -> bytes:
         """This method was used during expect(), reads data from serial output data cache.
 
         If the data cache is not empty, it will return immediately. Otherwise, waiting for new data.
 
         Args:
             size (int, optional): maximum size of returning data. Defaults to 1.
-            timeout (int | None, optional): maximum block time waiting for new data. Defaults to None (spawn.timeout).
+            timeout (Union[int, float] | None, optional): maximum block time waiting for new data.
 
         Returns:
             bytes: new serial output data.
@@ -128,18 +129,25 @@ class SerialSpawn(pexpect.spawnbase.SpawnBase):
         if timeout is None:
             timeout = self.timeout
         t0 = time.time()
-        time_left = t0 + timeout - time.time()
-        while len(self._data_cache) < size and time_left > 0:
+        # Read out all cache from queue first
+        while True:
             try:
-                if self._data_cache:
-                    # do non-blocking read if data cache is not empty
-                    _new_data = self._read_queue.get(timeout=0)
-                else:
-                    _new_data = self._read_queue.get(timeout=time_left)
+                _new_data = self._read_queue.get(timeout=0)
+                self._data_cache += _new_data
+            except queue.Empty:
+                break
+        logger.debug(self._data_cache)
+        # Waiting for more data until timeout if there's no data cache.
+        # Any new data should be returned immediately.
+        time_left = t0 + timeout - time.time()
+        while not self._data_cache and time_left > 0:
+            try:
+                _new_data = self._read_queue.get(timeout=time_left)
                 self._data_cache += _new_data
             except queue.Empty:
                 break
             time_left = t0 + timeout - time.time()
+        # Returned data should not more than given size.
         if self._data_cache:
             ret_data = self._data_cache[:size]
             self._data_cache = self._data_cache[size:]
@@ -184,6 +192,7 @@ class SerialDut:
         else:
             # support set serial after class initialized
             self._serial = None
+        self.delayafterread = 0.001
 
     def _open_serial_port(self) -> None:
         if self._serial:
@@ -263,6 +272,7 @@ class SerialDut:
         This method only accepts pattern type str/bytes or re.Pattern. Does not accept list, EOF or TIMEOUT.
         If the pattern type is str or bytes, this method is similar to expect_exact(), but returning None.
         If the pattern type is re.Pattern, this method will return a re.Match object if the pattern is matched.
+        Can read all output data by pattern=re.compile('.+', re.DOTALL)
 
         Args:
             pattern (Union[str, bytes, re.Pattern]): pattern to match
@@ -278,8 +288,9 @@ class SerialDut:
 
         assert isinstance(pattern, re.Pattern)
         if isinstance(pattern.pattern, str):
-            # re-compile regex pattern using bytes
-            pexpect_pattern = re.compile(to_bytes(pattern.pattern))
+            # re-compile regex pattern using bytes, with same flags
+            re_flags = pattern.flags & (re.DOTALL | re.MULTILINE)
+            pexpect_pattern = re.compile(to_bytes(pattern.pattern), re_flags)
         else:
             pexpect_pattern = pattern
         self._pexpect_proc.expect(pexpect_pattern, timeout=timeout)

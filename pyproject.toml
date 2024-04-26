@@ -14,7 +14,11 @@
     readme = "README.md"
     requires-python = ">=3.7"
 
-    dependencies = ["pyserial"]
+    dependencies = [
+        "pyserial",
+        "PyYAML",
+        "pexpect",
+    ]
 
 
     [project.optional-dependencies]
@@ -24,16 +28,23 @@
             "pylint==2.17.5",
         ]
         dev = [
+            "PyYAML~=6.0",
             "commitizen~=3.10.1",
             "pip-tools~=7.3",
             "pytest-cov~=4.1.0",
             "pytest~=7.4.0",
+            "pexpect~=4.8.0",
         ]
         doc = [
             "sphinx~=7.0",
             "sphinx_rtd_theme~=2.0",
         ]
-        test = ["pytest-cov~=4.1.0", "pytest~=7.4.0"]
+        test = [
+            "pytest-cov~=4.1",
+            "pytest~=7.4",
+            "PyYAML~=6.0",
+            "pexpect~=4.8",
+        ]
 
     [project.scripts]
         mooo = "template_package.__main__:main"
@@ -157,11 +168,18 @@
             type    = "input"
 
 [tool.pytest.ini_options]
-    addopts          = "-s --log-cli-level DEBUG --cov=esp_test_utils --cov-report=term"
+    addopts          = "-s --cov=esp_test_utils --cov-report=term"
     python_classes   = ["Test*"]
     python_files     = ["test_*.py"]
     python_functions = ["test_*"]
     testpaths        = ["tests"]
+    markers          = ["target_test", "env"]
+    log_cli_level    = "INFO"
+    log_cli_format   = "%(asctime)s %(levelname)s %(message)s"
+    log_cli_date_format = "%Y-%m-%d %H:%M:%S.%f"
 
 [tool.coverage.run]
-    omit = ["__*__.py", "*/tests/*"]
+    omit = [
+        "__*__.py",
+        "*/tests/*"
+    ]
