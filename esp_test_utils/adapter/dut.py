@@ -65,6 +65,8 @@ class DutWrapper:
 
     @staticmethod
     def _handle_expect_timeout(func: Callable) -> Callable:
+        """Raise same type exception ExpectTimeout for duts from different frameworks"""
+
         @functools.wraps(func)
         def wrap(self, *args, **kwargs):  # type: ignore
             try:

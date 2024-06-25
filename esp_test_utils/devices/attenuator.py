@@ -2,6 +2,7 @@ import codecs
 import re
 import time
 from typing import Optional
+from typing import Union
 
 import serial
 from serial.tools.list_ports_common import ListPortInfo
@@ -12,13 +13,16 @@ from .serial_tools import get_all_serial_ports
 logger = get_logger('devices')
 
 
-def set_att(port: ListPortInfo, att: int, att_fix: bool = False) -> bool:
+def set_att(port: Union[ListPortInfo, str], att: int, att_fix: bool = False) -> bool:
     """set attenuation value on the attenuator
 
-    :param str port: serial port for attenuator
+    :param str port: serial port for attenuator, or port name, or ''.
     :param int att: attenuation value we want to set
     :param bool att_fix: fix the deviation with experience value, defaults to False
     """
+    if not isinstance(port, ListPortInfo):
+        port = find_att_port(port)
+    assert isinstance(port, ListPortInfo)
     result = False
     serial_port = serial.Serial(port.device, baudrate=9600, rtscts=False, timeout=0.1)
     if not serial_port.is_open:
@@ -98,4 +102,5 @@ def find_att_port(port: Optional[str] = None) -> ListPortInfo:
                 break
     if not att_port:
         raise AssertionError('Can not find supported att port ....')
+    logger.debug(f'Find available att port {att_port.device}: {att_port.vid}:{att_port.pid}')
     return att_port

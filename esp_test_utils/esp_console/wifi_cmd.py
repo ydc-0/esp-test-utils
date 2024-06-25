@@ -110,7 +110,7 @@ class WifiCmd:
         version = cls.VERSION
         if not match_sta_scan:
             assert match_scan, 'Not supported version, neither "scan" nor "sta_scan" were supported.'
-            # found "scan", didn't find "sta_scan"
+            # found "scan", didn't find "sta_scan"1
             warnings.warn(
                 'Found deprecated wifi-cmd version (v0.0), please update it as soon as possible!', DeprecationWarning
             )
@@ -121,9 +121,6 @@ class WifiCmd:
         else:
             # found "sta_scan", didn't find "scan"
             version = 'v1.0'
-
-        # Also update the class default
-        cls.VERSION = version
         return version
 
     @classmethod
@@ -240,3 +237,11 @@ class WifiCmd:
 
         logger.info(f'dut left data: {sta_dut.read_all_data()!r}')
         raise TimeoutError(f'station connect AP failed in {timeout} seconds.')
+
+
+class WifiCmdV0(WifiCmd):
+    VERSION = 'v0.0'
+
+
+class WifiCmdV1(WifiCmd):
+    VERSION = 'v1.0'

@@ -225,8 +225,9 @@ class SerialDut:
             assert self._pexpect_proc
             self._pexpect_proc.stop()
             self._pexpect_proc = None
-            if self._serial.is_open:
-                self._serial.close()
+            # Do not close serial port because the port may not open by this object.
+            # if self._serial.is_open:
+            #     self._serial.close()
         if serial_instance:
             self._serial = serial_instance
             self._open_serial_port()
@@ -289,7 +290,7 @@ class SerialDut:
         assert isinstance(pattern, re.Pattern)
         if isinstance(pattern.pattern, str):
             # re-compile regex pattern using bytes, with same flags
-            re_flags = pattern.flags & (re.DOTALL | re.MULTILINE)
+            re_flags = pattern.flags & (re.DOTALL | re.MULTILINE | re.IGNORECASE)
             pexpect_pattern = re.compile(to_bytes(pattern.pattern), re_flags)
         else:
             pexpect_pattern = pattern

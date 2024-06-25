@@ -1,4 +1,5 @@
 .mypy_cache/
+htmlcov/
 /.coverage
 /.coverage.*
 /.coverage.*
