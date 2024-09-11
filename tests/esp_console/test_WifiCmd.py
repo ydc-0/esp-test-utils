@@ -12,8 +12,8 @@ import pytest
 import serial
 
 from esp_test_utils import dut_wrapper
-from esp_test_utils.esp_console import WifiCmd
 from esp_test_utils.esp_console.wifi_cmd import ConnectedInfo
+from esp_test_utils.esp_console.wifi_cmd import WifiCmd
 
 SERIAL_PORT = os.getenv('ESPPORT', '/dev/ttyUSB0')
 TEST_FILES_PATH = pathlib.Path(__file__).resolve().parent / '_files'
@@ -68,10 +68,10 @@ def test_wifi_cmd_sta_connect_dut() -> None:
         time.sleep(0.1)
         dut.write(b'sta_disconnect\r\n')
         time.sleep(0.2)
+        conn_cmd = WifiCmd.gen_connect_cmd(test_ssid, test_passwd)
         info = WifiCmd.connect_to_ap(
             dut,
-            test_ssid,
-            test_passwd,
+            conn_cmd,
             timeout=30,
         )
         assert info.ssid == test_ssid
@@ -128,10 +128,10 @@ class TestWifiCmd(unittest.TestCase):
                 timer = threading.Timer(0.5, self._serial_append_log, kwargs=kwargs)
                 timer.start()
 
+                conn_cmd = WifiCmd.gen_connect_cmd('testap-11', password='00000000')
                 info = WifiCmd.connect_to_ap(
                     dut,
-                    'testap-11',
-                    password='00000000',
+                    conn_cmd,
                     timeout=5,
                 )
                 assert info.ssid == 'testap-11'

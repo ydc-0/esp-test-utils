@@ -6,37 +6,41 @@ import re
 import tempfile
 import time
 import unittest
-from typing import Any
 
 import pytest
 import serial
 
 from esp_test_utils import dut_wrapper
-from esp_test_utils.adapter.dut import BaseDut
-from esp_test_utils.adapter.dut import ExpectTimeout
+from esp_test_utils.adapter.base_port import BasePort
+from esp_test_utils.adapter.base_port import ExpectTimeout
+from esp_test_utils.adapter.dut import DutBaseWrapper
+from esp_test_utils.adapter.dut.serial_dut import SerialPort
 from esp_test_utils.devices.serial_dut import SerialDut
 
 
 def test_base_dut_isinstance() -> None:
-    class MyDut:
+    class MyPort:
         def __init__(self) -> None:
-            self.data = ''
+            self._data = b''
 
-        def write(self, data: str) -> None:
-            self.data += data
+        def write_bytes(self, data: bytes) -> None:
+            self._data += data
 
-        def expect(self, pattern: Any, timeout: int = -1) -> re.Match:
-            # pylint: disable=unused-argument
-            match = re.match(pattern, self.data)
-            return match  # type: ignore
+        def read_bytes(self, timeout: int = -1) -> bytes:
+            assert timeout > 0
+            time.sleep(timeout)
+            _data = self._data
+            self._data = b''
+            return _data
 
-    def my_func(dut: BaseDut) -> None:
+    def my_func(dut: DutBaseWrapper) -> None:
         dut.write('aaa')
         dut.expect(re.compile(r'aaa'))
 
-    dut = MyDut()
-    assert isinstance(dut, BaseDut)
-    my_func(dut)
+    my_port = MyPort()
+    assert isinstance(my_port, BasePort)
+    with dut_wrapper(my_port, 'MyDut') as dut:
+        my_func(dut)
 
 
 class TestSerialDut(unittest.TestCase):
@@ -65,8 +69,12 @@ class TestSerialDut(unittest.TestCase):
         except OSError:
             pass
 
+    def test_serial_port_class(self) -> None:
+        ser = SerialPort(self.serial_port, 115200, timeout=0.001)
+        assert isinstance(ser, BasePort)
+
     def test_set_serial_after_init(self) -> None:
-        dut = SerialDut('MyDut', port=None)
+        dut = SerialDut(None, name='MyDut')
         try:
             dut.serial = serial.Serial(self.serial_port, 115200, timeout=0.001)
             fd_master = os.fdopen(self.master, 'rb')
@@ -79,10 +87,11 @@ class TestSerialDut(unittest.TestCase):
             self._close_file_io(fd_master)
 
     def test_serial_dut_write(self) -> None:
-        dut = SerialDut('MyDut', self.serial_port, 115200, timeout=0.001)
+        ser = serial.Serial(self.serial_port, 115200, timeout=0.001)
+        dut = SerialDut(ser, 'MyDut')
         fd_master = os.fdopen(self.master, 'rb')
         try:
-            assert isinstance(dut, BaseDut)
+            assert isinstance(dut, DutBaseWrapper)
             # Test write data to serial
             dut.write('aaa')
             _data = fd_master.read1(5)
@@ -97,7 +106,8 @@ class TestSerialDut(unittest.TestCase):
 
     def test_serial_dut_with_statement(self) -> None:
         check_thread = None
-        with SerialDut('MyDut', self.serial_port, 115200, timeout=0.001) as dut:
+        ser = serial.Serial(self.serial_port, 115200, timeout=0.001)
+        with SerialDut(ser, 'MyDut') as dut:
             assert dut._pexpect_proc  # pylint: disable=protected-access
             check_thread = dut._pexpect_proc._read_thread  # pylint: disable=protected-access
             with os.fdopen(self.master, 'rb') as fd_master:
@@ -109,7 +119,8 @@ class TestSerialDut(unittest.TestCase):
             assert not check_thread.is_alive()
 
     def test_dut_wrapper_raise_timeout(self) -> None:
-        ser_dut = SerialDut('MyDut', self.serial_port, 115200, timeout=0.001)
+        ser = serial.Serial(self.serial_port, 115200, timeout=0.001)
+        ser_dut = SerialDut(ser, 'MyDut')
         with dut_wrapper(ser_dut) as dut:
             # Test expect string failure
             with pytest.raises(ExpectTimeout):
@@ -117,7 +128,8 @@ class TestSerialDut(unittest.TestCase):
 
     def test_serial_dut_expect(self) -> None:
         t0 = time.perf_counter()
-        dut = SerialDut('MyDut', self.serial_port, 115200, timeout=0.001)
+        ser = serial.Serial(self.serial_port, 115200, timeout=0.001)
+        dut = SerialDut(ser, 'MyDut')
         fd_master = os.fdopen(self.master, 'wb')
         try:
             # Test expect string failure
@@ -172,14 +184,48 @@ class TestSerialDut(unittest.TestCase):
         # Check Total time, All expect should block no more than one seconds other than the failure one
         assert time.perf_counter() - t0 < 2
 
-    def test_serial_dut_log(self) -> None:
-        ser_read_timeout = 0.005
-        dut = SerialDut('MyDut', self.serial_port, 115200, timeout=ser_read_timeout)
-        log_file = tempfile.mktemp()
+    def test_serial_dut_data_cache(self) -> None:
+        ser_read_timeout = 0.002
+        ser = serial.Serial(self.serial_port, 115200, timeout=ser_read_timeout)
+        dut = SerialDut(ser, 'MyDut')
         fd_master = os.fdopen(self.master, 'wb')
         try:
-            # log file should be created after set log file
-            dut.set_serial_log_file(log_file)
+            data_cache = dut.data_cache
+            assert data_cache == ''
+            # port data
+            fd_master.write(b'bbb')
+            fd_master.flush()
+            time.sleep(ser_read_timeout * 2)
+            # get data cache does not clear port buffer
+            data_cache = dut.data_cache
+            assert data_cache == 'bbb'
+            data_cache = dut.data_cache
+            assert data_cache == 'bbb'
+            # Clear port buffer
+            dut.flush_data()
+            data_cache = dut.data_cache
+            assert data_cache == ''
+            with pytest.raises(Exception):
+                dut.expect('bbb', timeout=1)
+            # Test expect bytes success
+            fd_master.write(b'ccc')
+            fd_master.flush()
+            time.sleep(ser_read_timeout * 2)
+            bytes_cache = dut.read_all_bytes(flush=False)
+            assert bytes_cache == b'ccc'
+            bytes_cache = dut.read_all_bytes(flush=False)
+            assert bytes_cache == b'ccc'
+        finally:
+            dut.close()
+            self._close_file_io(fd_master)
+
+    def test_serial_dut_log(self) -> None:
+        ser_read_timeout = 0.005
+        ser = serial.Serial(self.serial_port, 115200, timeout=ser_read_timeout)
+        log_file = tempfile.mktemp()
+        dut = SerialDut(ser, 'MyDut', log_file=log_file)
+        fd_master = os.fdopen(self.master, 'wb')
+        try:
             assert os.path.isfile(log_file)
             # test one line
             fd_master.write(b'one line \r\n')

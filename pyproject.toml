@@ -15,25 +15,36 @@
     requires-python = ">=3.7"
 
     dependencies = [
+        "psutil",
         "pyserial",
         "PyYAML",
         "pexpect",
+        "pyusb",
+        "typing_extensions; python_version < '3.11'"
     ]
 
-
     [project.optional-dependencies]
+        # Optional Features
+        chart = [
+            "pyecharts",
+        ]
+        # Test & Dev & Doc
         ci-quality = [
             "pylint-gitlab~=2.0.0",
             "pylint-quotes~=0.2.3",
-            "pylint==2.17.5",
+            "pylint==2.17.5"
         ]
         dev = [
-            "PyYAML~=6.0",
             "commitizen~=3.10.1",
             "pip-tools~=7.3",
             "pytest-cov~=4.1.0",
-            "pytest~=7.4.0",
-            "pexpect~=4.8.0",
+            "pytest~=7.4.0"
+        ]
+        mypy = [
+            "types-psutil",
+            "types-PyYAML",
+            "types-pyserial",
+            "types-pexpect"
         ]
         doc = [
             "sphinx~=7.0",
@@ -41,22 +52,25 @@
         ]
         test = [
             "pytest-cov~=4.1",
-            "pytest~=7.4",
-            "PyYAML~=6.0",
-            "pexpect~=4.8",
+            "pytest~=7.4"
+        ]
+        test-features = [
+            "pyecharts"
         ]
 
     [project.scripts]
-        mooo = "template_package.__main__:main"
+        esp_copy_bin = "esp_test_utils.tools.copy_bin"
 
 [tool.setuptools_scm]
 
 [tool.codespell]
     skip = 'tests/*'
+    ignore-words-list = "ser"
 
 [tool.pylint]
     [tool.pylint.MASTER]
         ignore-paths = ["tests/.*"] # Paths to ignore during linting
+        max-args = 6
     [tool.pylint.'BASIC']
         variable-rgx = "[a-z_][a-z0-9_]{0,30}$" # Variable names must start with a lowercase letter or underscore, followed by any combination of lowercase letters, numbers, or underscores, with a total length of 1 to 30 characters.
     [tool.pylint.'MESSAGES CONTROL']
@@ -77,6 +91,7 @@
             "too-many-statements",           # R0915: Too many statements
             "ungrouped-imports",             # C0412: Imports should be grouped by packages
             "too-many-instance-attributes",  # R0902: Too many instance attributes
+            "abstract-method",               # W0223
         ]
     [tool.pylint.'FORMAT']
         max-line-length = 120 # Specifies the maximum line length for pylint checks
@@ -94,7 +109,7 @@
     disallow_untyped_defs    = true                                # Disallows defining functions without type annotations or with incomplete type annotations
     exclude                  = '^venv/'                            # Paths to ignore during type checking
     ignore_missing_imports   = true                                # Suppress error messages about imports that cannot be resolved
-    python_version           = "3.7"                               # Specifies the Python version used to parse and check the target program
+    python_version           = "3.11"                              # Specifies the Python version used to parse and check the target program
     warn_no_return           = true                                # Shows errors for missing return statements on some execution paths
     warn_return_any          = true                                # Shows a warning when returning a value with type Any from a function declared with a non- Any return type
     allow_redefinition       = true                                # allow a variable to be redefined with an unrelated type

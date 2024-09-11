@@ -91,7 +91,8 @@ publish_packages_gitlab:
 publish_pypi:
   extends:
     - publish_packages_gitlab
-  when: manual
+  rules:
+    - when: manual
   variables:
     TWINE_PASSWORD: ${PYPI_API_TOKEN}
     TWINE_USERNAME: __token__

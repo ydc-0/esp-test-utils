@@ -4,7 +4,7 @@ import warnings
 from dataclasses import dataclass
 from typing import Optional
 
-from ..adapter.dut import DutWrapper
+from ..adapter.dut.dut_base import DutBaseWrapper
 from ..basic import to_bytes
 from ..basic import to_str
 from ..logger import get_logger
@@ -83,13 +83,13 @@ class WifiCmd:
     @classmethod
     def detect_version(
         cls,
-        dut: Optional[DutWrapper] = None,
+        dut: Optional[DutBaseWrapper] = None,
         help_text: str = '',
     ) -> str:
         """Detect and update wifi-cmd version from the help log.
 
         Args:
-            dut (DutWrapper, optional): dut object, used to get help text.
+            dut (DutBaseWrapper, optional): dut object, used to get help text.
             help_text (str, optional): use given help text rather than getting from dut.
 
         Returns:
@@ -110,7 +110,7 @@ class WifiCmd:
         version = cls.VERSION
         if not match_sta_scan:
             assert match_scan, 'Not supported version, neither "scan" nor "sta_scan" were supported.'
-            # found "scan", didn't find "sta_scan"
+            # found "scan", didn't find "sta_scan"1
             warnings.warn(
                 'Found deprecated wifi-cmd version (v0.0), please update it as soon as possible!', DeprecationWarning
             )
@@ -121,39 +121,20 @@ class WifiCmd:
         else:
             # found "sta_scan", didn't find "scan"
             version = 'v1.0'
-
-        # Also update the class default
-        cls.VERSION = version
         return version
 
     @classmethod
-    def connect_to_ap(
-        cls,
-        sta_dut: DutWrapper,
-        ssid: str,
-        password: str = '',
-        *,
-        bssid: str = '',
-        # How to check connection succeed
-        timeout: int = 30,
-        wait_ip: bool = True,
-        # TBD, ipv6 address is not shown in wifi-cmd yet
-        # wait_ip6_num: int = 0,
-    ) -> ConnectedInfo:
-        # pylint: disable=too-many-arguments
-        """Connect to external AP and check connected
+    def gen_connect_cmd(cls, ssid: str, password: str = '', *, bssid: str = '') -> str:
+        """generate correct connect command
 
         Args:
-            sta_dut (DutWrapper): which dut
+            sta_dut (DutBaseWrapper): which dut
             ssid (str): ssid of AP
             password (str, optional): password of AP. Defaults to ''.
             bssid (str, optional): specify bssid of AP. Defaults to None.
-            timeout (int, optional): maximum waiting time before connected. Defaults to 30 seconds.
-            wait_ip (bool, optional): Do not return until got ip. Defaults to True.
-            wait_ip6_num (int, optional): TBD, please use other command to get ipv6 for now.
 
         Returns:
-            ConnectedInfo: an object contains connected information
+            str: connect command string
         """
         conn_cmd = 'sta_connect'
         if cls.VERSION in ['0.1', '0.0']:
@@ -164,9 +145,33 @@ class WifiCmd:
             _cmd += f' {password}'
         if bssid:
             _cmd += f' -b {bssid}'
-        # start connect
-        _cmd += '\n'
-        sta_dut.write(to_bytes(_cmd))
+        return _cmd
+
+    @classmethod
+    def connect_to_ap(
+        cls,
+        sta_dut: DutBaseWrapper,
+        conn_cmd: str,
+        # How to check connection succeed
+        timeout: int = 30,
+        wait_ip: bool = True,
+        # TBD, ipv6 address is not shown in wifi-cmd yet
+        # wait_ip6_num: int = 0,
+    ) -> ConnectedInfo:
+        # pylint: disable=too-many-arguments
+        """Connect to external AP and check connected
+
+        Args:
+            sta_dut (DutBaseWrapper): which dut
+            conn_cmd (str): connect command
+            timeout (int, optional): maximum waiting time before connected. Defaults to 30 seconds.
+            wait_ip (bool, optional): Do not return until got ip. Defaults to True.
+            wait_ip6_num (int, optional): TBD, please use other command to get ipv6 for now.
+
+        Returns:
+            ConnectedInfo: an object contains connected information
+        """
+        sta_dut.write_line(conn_cmd)
 
         all_expect = re.compile(
             '|'.join(
@@ -185,7 +190,8 @@ class WifiCmd:
         )
 
         t0 = time.perf_counter()
-        connected_info = ConnectedInfo(ssid=ssid, bssid=bssid)
+
+        connected_info = ConnectedInfo(ssid=conn_cmd.split()[1])
         wifi_connected = False
         got_ip4 = False
         while time.perf_counter() - t0 < timeout:
@@ -235,8 +241,11 @@ class WifiCmd:
 
             # Already connected and got expected ip addresses.
             if wifi_connected and (not wait_ip or got_ip4):
-                logger.warning('return')
-                return connected_info
+                break
+        else:
+            # timeout
+            logger.info(f'dut left data: {sta_dut.read_all_bytes()!r}')
+            raise TimeoutError(f'station connect AP failed in {timeout} seconds.')
 
-        logger.info(f'dut left data: {sta_dut.read_all_data()!r}')
-        raise TimeoutError(f'station connect AP failed in {timeout} seconds.')
+        # query connected info
+        return connected_info
